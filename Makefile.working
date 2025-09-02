@@ -1,0 +1,36 @@
+.PHONY: help dev migrate test clean
+
+help: ## Show this help message
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+dev: ## Start development environment
+	docker-compose -f docker-compose.simple.yml up --build -d
+	@echo ""
+	@echo "🚀 EvalWise Backend Started!"
+	@echo "📱 API: http://localhost:8000"
+	@echo "🔗 API docs: http://localhost:8000/docs"
+	@echo "📊 Health: http://localhost:8000/health"
+	@echo ""
+
+migrate: ## Run database migrations
+	docker-compose -f docker-compose.simple.yml exec api alembic upgrade head
+
+test: ## Test API endpoints
+	@echo "Testing API endpoints..."
+	@curl -s http://localhost:8000/health | jq .
+	@echo "\nDatasets:"
+	@curl -s http://localhost:8000/datasets | jq .
+	@echo "\nScenarios:"
+	@curl -s http://localhost:8000/scenarios | jq .
+	@echo "\nEvaluators:"
+	@curl -s http://localhost:8000/evaluators | jq .
+
+clean: ## Clean up containers and volumes
+	docker-compose -f docker-compose.simple.yml down -v
+	docker system prune -f
+
+logs: ## Show logs
+	docker-compose -f docker-compose.simple.yml logs -f api
+
+status: ## Show container status
+	docker-compose -f docker-compose.simple.yml ps
