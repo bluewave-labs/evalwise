@@ -17,6 +17,7 @@ import {
   Shield,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Key
 } from 'lucide-react'
 import { useState } from 'react'
@@ -68,6 +69,7 @@ export default function Sidebar() {
   const { user, logout } = useAuth()
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
 
   // Don't show sidebar on auth pages
   if (!pathname || pathname === '/login' || pathname === '/forgot-password' || pathname.startsWith('/reset-password')) {
@@ -81,7 +83,7 @@ export default function Sidebar() {
   const sidebarWidth = collapsed ? 'w-16' : 'w-64'
 
   return (
-    <div className={`${sidebarWidth} transition-all duration-300 bg-white border-r border-gray-200 min-h-screen flex flex-col`}>
+    <div className={`${sidebarWidth} transition-all duration-300 bg-white border-r border-gray-200 h-screen flex flex-col fixed top-0 left-0 z-10`}>
       {/* Header */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
@@ -165,62 +167,65 @@ export default function Sidebar() {
 
       {/* User section */}
       <div className="border-t border-gray-200 p-4">
-        {/* User info */}
+        {/* User dropdown trigger */}
         {!collapsed && (
-          <div className="mb-3 px-2">
-            <div className="flex items-center space-x-2 text-sm">
-              <User className="h-4 w-4 text-gray-500" />
-              <div className="flex-1 min-w-0">
-                <div className="truncate font-medium text-gray-900">
+          <div className="relative">
+            <button
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+            >
+              <div className="flex items-center space-x-2">
+                <User className="h-4 w-4 text-gray-500" />
+                <div className="truncate">
                   {user.full_name || user.username}
                 </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs text-gray-500 truncate">
-                    {user.email}
-                  </span>
-                  {user.is_superuser && (
-                    <span className="px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded">
-                      Admin
-                    </span>
-                  )}
-                </div>
               </div>
-            </div>
+              <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${
+                userMenuOpen ? 'transform rotate-180' : ''
+              }`} />
+            </button>
+
+            {/* Dropdown menu */}
+            {userMenuOpen && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-white border border-gray-200 rounded-md shadow-lg py-1">
+                <Link 
+                  href="/settings"
+                  className={`flex items-center w-full px-3 py-2 text-sm font-medium transition-colors ${
+                    pathname === '/settings'
+                      ? 'bg-blue-600 text-white' 
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  }`}
+                  onClick={() => setUserMenuOpen(false)}
+                >
+                  <Settings className="h-4 w-4 flex-shrink-0" />
+                  <span className="ml-3">Settings</span>
+                </Link>
+                
+                <button
+                  onClick={() => {
+                    setUserMenuOpen(false)
+                    logout()
+                  }}
+                  className="flex items-center w-full px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+                >
+                  <LogOut className="h-4 w-4 flex-shrink-0" />
+                  <span className="ml-3">Logout</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Action buttons */}
-        <div className="space-y-1">
-          <Link 
-            href="/settings"
-            className={`flex items-center w-full px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-              pathname === '/settings'
-                ? 'bg-blue-600 text-white' 
-                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-            }`}
-            title={collapsed ? 'Settings' : undefined}
+        {/* Collapsed state - show icon only */}
+        {collapsed && (
+          <button
+            onClick={() => setUserMenuOpen(!userMenuOpen)}
+            className="w-full flex items-center justify-center p-2 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+            title={user.full_name || user.username}
           >
-            <Settings className="h-4 w-4 flex-shrink-0" />
-            {!collapsed && (
-              <span className="ml-3">Settings</span>
-            )}
-          </Link>
-          
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onClick={logout}
-            className={`flex items-center w-full justify-start px-3 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 ${
-              collapsed ? 'px-2' : ''
-            }`}
-            title={collapsed ? 'Logout' : undefined}
-          >
-            <LogOut className="h-4 w-4 flex-shrink-0" />
-            {!collapsed && (
-              <span className="ml-3">Logout</span>
-            )}
-          </Button>
-        </div>
+            <User className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </div>
   )

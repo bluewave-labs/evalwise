@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Settings, Building2, Users, Shield, Bell, Key } from 'lucide-react'
+import { Settings, Building2, Users, Shield, Key } from 'lucide-react'
 import { useAuth } from '@/contexts/auth-context'
 import { api } from '@/lib/api'
 import ProtectedRoute from '@/components/protected-route'
@@ -62,7 +62,6 @@ export default function SettingsPage() {
     { id: 'organization', label: 'Organization', icon: Building2 },
     { id: 'team', label: 'Team Members', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'api-keys', label: 'API Keys', icon: Key }
   ]
 
@@ -201,14 +200,6 @@ export default function SettingsPage() {
               
               <div className="space-y-4">
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="font-medium text-gray-900 mb-2">Two-Factor Authentication</h3>
-                  <p className="text-gray-600 text-sm mb-3">Add an extra layer of security to your account</p>
-                  <button className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded text-sm">
-                    Enable 2FA
-                  </button>
-                </div>
-                
-                <div className="bg-gray-50 rounded-lg p-4">
                   <h3 className="font-medium text-gray-900 mb-2">Password</h3>
                   <p className="text-gray-600 text-sm mb-3">Last changed: Never</p>
                   <button className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded text-sm">
@@ -219,37 +210,14 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {activeTab === 'notifications' && (
-            <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">Notification Preferences</h2>
-              
-              <div className="space-y-4">
-                <label className="flex items-center justify-between bg-gray-50 rounded-lg p-4">
-                  <div>
-                    <p className="text-gray-900 font-medium">Email Notifications</p>
-                    <p className="text-gray-600 text-sm">Receive email updates about evaluations</p>
-                  </div>
-                  <input type="checkbox" className="toggle" defaultChecked />
-                </label>
-                
-                <label className="flex items-center justify-between bg-gray-50 rounded-lg p-4">
-                  <div>
-                    <p className="text-gray-900 font-medium">Weekly Reports</p>
-                    <p className="text-gray-600 text-sm">Get weekly summaries of your evaluation runs</p>
-                  </div>
-                  <input type="checkbox" className="toggle" />
-                </label>
-              </div>
-            </div>
-          )}
 
           {activeTab === 'api-keys' && (
             <div className="space-y-6">
               <h2 className="text-xl font-semibold text-gray-900">API Keys</h2>
               <p className="text-gray-600">Manage API keys for programmatic access</p>
               
-              <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-4">
-                <p className="text-yellow-300 text-sm">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p className="text-yellow-800 text-sm">
                   <strong>Note:</strong> Store your API keys securely. They provide full access to your account.
                 </p>
               </div>

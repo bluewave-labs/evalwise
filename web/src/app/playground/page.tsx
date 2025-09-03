@@ -107,16 +107,16 @@ export default function PlaygroundPage() {
 
       {/* Configuration Warnings */}
       {evaluators.length === 0 && (
-        <div className="bg-yellow-900/20 border border-yellow-600 rounded-lg p-4 flex items-start space-x-3">
-          <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start space-x-3">
+          <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
           <div>
-            <h3 className="text-yellow-300 font-medium">No Evaluators Available</h3>
-            <p className="text-yellow-200 text-sm mt-1">
+            <h3 className="text-yellow-800 font-medium">No Evaluators Available</h3>
+            <p className="text-yellow-700 text-sm mt-1">
               You don't have any evaluators configured. Evaluators are needed to score and validate your LLM responses.
             </p>
             <Link 
               href="/evaluators" 
-              className="inline-flex items-center space-x-1 text-yellow-300 hover:text-yellow-200 text-sm mt-2 underline"
+              className="inline-flex items-center space-x-1 text-yellow-700 hover:text-yellow-800 text-sm mt-2 underline"
             >
               <Settings className="h-4 w-4" />
               <span>Configure Evaluators</span>
@@ -333,8 +333,8 @@ export default function PlaygroundPage() {
             <p>4. Click "Run Test" to see results and evaluations</p>
           </div>
           
-          <div className="mt-4 p-3 bg-yellow-900/20 border border-yellow-600 rounded">
-            <p className="text-yellow-300 text-sm">
+          <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+            <p className="text-yellow-800 text-sm">
               <strong>Note:</strong> Make sure your API keys are configured in the backend .env file.
               LLM Judge evaluators require OpenAI API access.
             </p>

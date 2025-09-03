@@ -269,15 +269,15 @@ export default function RunsPage() {
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Create New Evaluation Run</h2>
           
           {providers.length === 0 && (
-            <div className="bg-yellow-900/20 border border-yellow-700 rounded-lg p-4 mb-6">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
               <div className="flex items-center space-x-2">
-                <Key className="h-5 w-5 text-yellow-400" />
-                <h3 className="text-yellow-300 font-medium">No LLM Providers Configured</h3>
+                <Key className="h-5 w-5 text-yellow-600" />
+                <h3 className="text-yellow-800 font-medium">No LLM Providers Configured</h3>
               </div>
-              <p className="text-yellow-200 text-sm mt-2">
+              <p className="text-yellow-700 text-sm mt-2">
                 You need to configure LLM providers before creating evaluation runs.
               </p>
-              <Link href="/providers" className="inline-flex items-center space-x-2 mt-3 text-yellow-300 hover:text-yellow-100 text-sm">
+              <Link href="/providers" className="inline-flex items-center space-x-2 mt-3 text-yellow-700 hover:text-yellow-800 text-sm">
                 <Settings className="h-4 w-4" />
                 <span>Configure Providers</span>
               </Link>

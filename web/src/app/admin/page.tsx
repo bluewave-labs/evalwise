@@ -21,6 +21,7 @@ import {
   RefreshCw
 } from "lucide-react"
 import { useAuth } from '@/contexts/auth-context'
+import CreateUserModal from '@/components/create-user-modal'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -62,17 +63,9 @@ export default function AdminPage() {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
-  const [showCreateUser, setShowCreateUser] = useState(false)
+  const [showCreateUserModal, setShowCreateUserModal] = useState(false)
   const [showPasswords, setShowPasswords] = useState(false)
-  const [newUser, setNewUser] = useState<NewUser>({
-    email: '',
-    username: '',
-    password: '',
-    full_name: '',
-    is_active: true,
-    is_superuser: false,
-    rate_limit_tier: 'basic'
-  })
+  const [createUserLoading, setCreateUserLoading] = useState(false)
   const [error, setError] = useState('')
 
   const fetchStats = async () => {
@@ -114,8 +107,9 @@ export default function AdminPage() {
     }
   }
 
-  const createUser = async () => {
+  const createUser = async (userData: NewUser) => {
     setError('')
+    setCreateUserLoading(true)
     try {
       const response = await fetch(`${API_BASE_URL}/admin/users`, {
         method: 'POST',
@@ -123,28 +117,24 @@ export default function AdminPage() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(newUser)
+        body: JSON.stringify({...userData, rate_limit_tier: 'basic'})
       })
 
       if (response.ok) {
-        setNewUser({
-          email: '',
-          username: '',
-          password: '',
-          full_name: '',
-          is_active: true,
-          is_superuser: false,
-          rate_limit_tier: 'basic'
-        })
-        setShowCreateUser(false)
         await fetchUsers()
         await fetchStats()
+        setShowCreateUserModal(false)
       } else {
         const errorData = await response.json()
         setError(errorData.detail?.message || 'Failed to create user')
+        throw new Error(errorData.detail?.message || 'Failed to create user')
       }
     } catch (err) {
-      setError('Network error occurred')
+      const errorMessage = 'Network error occurred'
+      setError(errorMessage)
+      throw new Error(errorMessage)
+    } finally {
+      setCreateUserLoading(false)
     }
   }
 
@@ -287,7 +277,7 @@ export default function AdminPage() {
                 Manage system users and their permissions
               </CardDescription>
             </div>
-            <Button onClick={() => setShowCreateUser(true)}>
+            <Button onClick={() => setShowCreateUserModal(true)}>
               <Plus className="w-4 h-4 mr-2" />
               Create User
             </Button>
@@ -312,86 +302,6 @@ export default function AdminPage() {
             </Button>
           </div>
 
-          {/* Create User Form */}
-          {showCreateUser && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Create New User</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {error && (
-                  <div className="p-3 text-sm text-destructive-foreground bg-destructive/10 border border-destructive/20 rounded">
-                    {error}
-                  </div>
-                )}
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={newUser.email}
-                      onChange={(e) => setNewUser({...newUser, email: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="username">Username</Label>
-                    <Input
-                      id="username"
-                      value={newUser.username}
-                      onChange={(e) => setNewUser({...newUser, username: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      value={newUser.password}
-                      onChange={(e) => setNewUser({...newUser, password: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="fullName">Full Name</Label>
-                    <Input
-                      id="fullName"
-                      value={newUser.full_name}
-                      onChange={(e) => setNewUser({...newUser, full_name: e.target.value})}
-                    />
-                  </div>
-                </div>
-                
-                <div className="flex space-x-4">
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={newUser.is_active}
-                      onChange={(e) => setNewUser({...newUser, is_active: e.target.checked})}
-                    />
-                    <span className="text-sm">Active</span>
-                  </label>
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      checked={newUser.is_superuser}
-                      onChange={(e) => setNewUser({...newUser, is_superuser: e.target.checked})}
-                    />
-                    <span className="text-sm">Admin</span>
-                  </label>
-                </div>
-
-                <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={() => setShowCreateUser(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={createUser}>
-                    Create User
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           {/* Users Table */}
           <div className="border rounded-md">
@@ -442,6 +352,18 @@ export default function AdminPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Create User Modal */}
+      <CreateUserModal
+        isOpen={showCreateUserModal}
+        onClose={() => {
+          setShowCreateUserModal(false)
+          setError('')
+        }}
+        onSubmit={createUser}
+        isLoading={createUserLoading}
+        error={error}
+      />
     </div>
   )
 }

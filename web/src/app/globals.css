@@ -140,6 +140,16 @@
   ul, ol, li {
     font-size: 13px !important;
   }
+  
+  /* Sidebar responsive layout */
+  .sidebar-main {
+    margin-left: 16rem; /* w-64 = 16rem */
+  }
+  
+  /* When sidebar is collapsed (w-16 = 4rem) */
+  body:has(.w-16) .sidebar-main {
+    margin-left: 4rem;
+  }
 }
 
 @layer utilities {
