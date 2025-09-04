@@ -21,10 +21,34 @@ export default function SettingsPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null)
   const [loading, setLoading] = useState(true)
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  })
+  const [passwordLoading, setPasswordLoading] = useState(false)
+  const [apiKeyForm, setApiKeyForm] = useState({
+    name: '',
+    description: ''
+  })
+  const [apiKeyLoading, setApiKeyLoading] = useState(false)
+  const [members, setMembers] = useState<any[]>([])
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [inviteForm, setInviteForm] = useState({
+    email: '',
+    role: 'member'
+  })
+  const [inviteLoading, setInviteLoading] = useState(false)
 
   useEffect(() => {
     loadOrganizations()
   }, [user])
+
+  useEffect(() => {
+    if (activeTab === 'team' && organizations.length > 0) {
+      loadMembers()
+    }
+  }, [activeTab, organizations])
 
   const loadOrganizations = async () => {
     if (!user) return
@@ -55,6 +79,138 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Failed to update organization:', error)
       alert('Failed to update organization')
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      alert('New passwords do not match')
+      return
+    }
+    
+    if (passwordForm.newPassword.length < 8) {
+      alert('New password must be at least 8 characters long')
+      return
+    }
+    
+    setPasswordLoading(true)
+    try {
+      await api.patch('/users/me/password', {
+        current_password: passwordForm.currentPassword,
+        new_password: passwordForm.newPassword
+      })
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+      alert('Password changed successfully')
+    } catch (error: any) {
+      console.error('Failed to change password:', error)
+      const message = error.response?.data?.detail || 'Failed to change password'
+      alert(message)
+    } finally {
+      setPasswordLoading(false)
+    }
+  }
+
+  const handleGenerateApiKey = async () => {
+    if (!apiKeyForm.name.trim()) {
+      alert('Please enter a name for the API key')
+      return
+    }
+    
+    setApiKeyLoading(true)
+    try {
+      const response = await api.post('/users/me/api-keys', {
+        name: apiKeyForm.name,
+        description: apiKeyForm.description || undefined
+      })
+      setApiKeyForm({ name: '', description: '' })
+      alert(`API Key generated successfully: ${response.data.key}`)
+    } catch (error: any) {
+      console.error('Failed to generate API key:', error)
+      const message = error.response?.data?.detail || 'Failed to generate API key'
+      alert(message)
+    } finally {
+      setApiKeyLoading(false)
+    }
+  }
+
+  const loadMembers = async () => {
+    if (organizations.length === 0) return
+    
+    setMembersLoading(true)
+    try {
+      // Use the first organization for now
+      const orgId = organizations[0].id
+      const response = await api.get(`/organizations/${orgId}/members`)
+      setMembers(response.data)
+    } catch (error) {
+      console.error('Failed to load members:', error)
+      setMembers([])
+    } finally {
+      setMembersLoading(false)
+    }
+  }
+
+  const handleInviteMember = async () => {
+    if (!inviteForm.email.trim()) {
+      alert('Please enter an email address')
+      return
+    }
+    
+    if (organizations.length === 0) {
+      alert('No organization found')
+      return
+    }
+    
+    setInviteLoading(true)
+    try {
+      const orgId = organizations[0].id
+      await api.post(`/organizations/${orgId}/members/invite`, {
+        email: inviteForm.email,
+        role: inviteForm.role
+      })
+      setInviteForm({ email: '', role: 'member' })
+      alert('Member invited successfully')
+      await loadMembers()
+    } catch (error: any) {
+      console.error('Failed to invite member:', error)
+      const message = error.response?.data?.detail || 'Failed to invite member'
+      alert(message)
+    } finally {
+      setInviteLoading(false)
+    }
+  }
+
+  const handleUpdateMember = async (memberId: string, role: string) => {
+    if (organizations.length === 0) return
+    
+    try {
+      const orgId = organizations[0].id
+      await api.patch(`/organizations/${orgId}/members/${memberId}`, { role })
+      alert('Member role updated successfully')
+      await loadMembers()
+    } catch (error: any) {
+      console.error('Failed to update member:', error)
+      const message = error.response?.data?.detail || 'Failed to update member'
+      alert(message)
+    }
+  }
+
+  const handleRemoveMember = async (memberId: string, memberEmail: string) => {
+    if (!confirm(`Are you sure you want to remove ${memberEmail} from the organization?`)) {
+      return
+    }
+    
+    if (organizations.length === 0) return
+    
+    try {
+      const orgId = organizations[0].id
+      await api.delete(`/organizations/${orgId}/members/${memberId}`)
+      alert('Member removed successfully')
+      await loadMembers()
+    } catch (error: any) {
+      console.error('Failed to remove member:', error)
+      const message = error.response?.data?.detail || 'Failed to remove member'
+      alert(message)
     }
   }
 
@@ -187,9 +343,115 @@ export default function SettingsPage() {
               <h2 className="text-xl font-semibold text-gray-900">Team Members</h2>
               <p className="text-gray-600">Manage team members and permissions</p>
               
-              <div className="bg-gray-50 rounded-lg p-8 text-center">
-                <Users className="h-12 w-12 text-gray-500 mx-auto mb-3" />
-                <p className="text-gray-600">Team management coming soon</p>
+              {/* Invite New Member */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="font-medium text-gray-900 mb-4">Invite New Member</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      value={inviteForm.email}
+                      onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                      placeholder="user@example.com"
+                      className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Role
+                    </label>
+                    <select
+                      value={inviteForm.role}
+                      onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
+                      className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      onClick={handleInviteMember}
+                      disabled={inviteLoading || !inviteForm.email.trim()}
+                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded text-sm"
+                    >
+                      {inviteLoading ? 'Inviting...' : 'Invite Member'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Current Members */}
+              <div className="bg-white rounded-lg border border-gray-200">
+                <div className="p-4 border-b border-gray-200">
+                  <h3 className="font-medium text-gray-900">Current Members</h3>
+                </div>
+                
+                {membersLoading ? (
+                  <div className="p-8 text-center">
+                    <p className="text-gray-600">Loading members...</p>
+                  </div>
+                ) : members.length === 0 ? (
+                  <div className="p-8 text-center">
+                    <Users className="h-12 w-12 text-gray-500 mx-auto mb-3" />
+                    <p className="text-gray-600">No team members found</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-200">
+                    {members.map((member) => (
+                      <div key={member.id} className="p-4 flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3">
+                            <div className="h-8 w-8 bg-gray-500 rounded-full flex items-center justify-center">
+                              <span className="text-white text-sm font-medium">
+                                {member.full_name ? member.full_name.charAt(0).toUpperCase() : member.email.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900">
+                                {member.full_name || member.username}
+                                {member.is_current_user && (
+                                  <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded">You</span>
+                                )}
+                              </p>
+                              <p className="text-gray-600 text-sm">{member.email}</p>
+                              <p className="text-gray-500 text-xs">
+                                Joined {new Date(member.joined_at).toLocaleDateString()}
+                                {member.last_login && ` • Last login ${new Date(member.last_login).toLocaleDateString()}`}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-3">
+                          <select
+                            value={member.role}
+                            onChange={(e) => handleUpdateMember(member.id, e.target.value)}
+                            disabled={member.is_current_user}
+                            className="bg-white border border-gray-300 rounded px-2 py-1 text-sm text-gray-900 disabled:bg-gray-100"
+                          >
+                            <option value="viewer">Viewer</option>
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                          
+                          {!member.is_current_user && (
+                            <button
+                              onClick={() => handleRemoveMember(member.id, member.email)}
+                              className="text-red-600 hover:text-red-800 text-sm px-2 py-1"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -200,11 +462,49 @@ export default function SettingsPage() {
               
               <div className="space-y-4">
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="font-medium text-gray-900 mb-2">Password</h3>
-                  <p className="text-gray-600 text-sm mb-3">Last changed: Never</p>
-                  <button className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded text-sm">
-                    Change Password
-                  </button>
+                  <h3 className="font-medium text-gray-900 mb-4">Change Password</h3>
+                  <div className="space-y-3 max-w-md">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Current Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.currentPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                        className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        New Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.newPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                        className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Confirm New Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                        className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                      />
+                    </div>
+                    <button
+                      onClick={handleChangePassword}
+                      disabled={passwordLoading || !passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded text-sm"
+                    >
+                      {passwordLoading ? 'Changing...' : 'Change Password'}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -222,9 +522,42 @@ export default function SettingsPage() {
                 </p>
               </div>
               
-              <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">
-                Generate New API Key
-              </button>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="font-medium text-gray-900 mb-4">Generate New API Key</h3>
+                <div className="space-y-3 max-w-md">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Key Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={apiKeyForm.name}
+                      onChange={(e) => setApiKeyForm({ ...apiKeyForm, name: e.target.value })}
+                      placeholder="e.g., Production API Key"
+                      className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Description (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={apiKeyForm.description}
+                      onChange={(e) => setApiKeyForm({ ...apiKeyForm, description: e.target.value })}
+                      placeholder="e.g., Used for automated evaluations"
+                      className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                    />
+                  </div>
+                  <button
+                    onClick={handleGenerateApiKey}
+                    disabled={apiKeyLoading || !apiKeyForm.name.trim()}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded text-sm"
+                  >
+                    {apiKeyLoading ? 'Generating...' : 'Generate New API Key'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

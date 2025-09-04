@@ -13,6 +13,7 @@ interface NewUser {
   full_name: string
   is_active: boolean
   is_superuser: boolean
+  rate_limit_tier: string
 }
 
 interface CreateUserModalProps {
@@ -36,7 +37,8 @@ export default function CreateUserModal({
     password: '',
     full_name: '',
     is_active: true,
-    is_superuser: false
+    is_superuser: false,
+    rate_limit_tier: 'basic'
   })
   const [showPassword, setShowPassword] = useState(false)
 
@@ -55,7 +57,8 @@ export default function CreateUserModal({
         password: '',
         full_name: '',
         is_active: true,
-        is_superuser: false
+        is_superuser: false,
+        rate_limit_tier: 'basic'
       })
       onClose()
     } catch (error) {
@@ -70,7 +73,8 @@ export default function CreateUserModal({
       password: '',
       full_name: '',
       is_active: true,
-      is_superuser: false
+      is_superuser: false,
+      rate_limit_tier: 'basic'
     })
     onClose()
   }
