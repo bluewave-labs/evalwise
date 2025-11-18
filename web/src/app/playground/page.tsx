@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Play, Send, AlertTriangle, CheckCircle, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { playgroundApi, evaluatorApi } from '@/lib/api'
+import ProtectedRoute from '@/components/protected-route'
 
 interface Evaluator {
   id: string
@@ -28,7 +29,7 @@ interface PlaygroundResult {
   evaluations: EvaluationResult[]
 }
 
-export default function PlaygroundPage() {
+function PlaygroundPageContent() {
   const [prompt, setPrompt] = useState('')
   const [evaluators, setEvaluators] = useState<Evaluator[]>([])
   const [selectedEvaluatorIds, setSelectedEvaluatorIds] = useState<string[]>([])
@@ -77,8 +78,13 @@ export default function PlaygroundPage() {
     try {
       const response = await playgroundApi.test({
         prompt,
-        model,
-        evaluator_ids: selectedEvaluatorIds
+        // Backend expects `model` object matching ModelConfig
+        model: {
+          provider: model.provider,
+          name: model.name,
+          params: model.params,
+        },
+        evaluator_ids: selectedEvaluatorIds,
       })
       setResult(response.data)
     } catch (error) {
@@ -99,7 +105,7 @@ export default function PlaygroundPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto px-6 space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Playground</h1>
         <p className="text-gray-600 mt-1">Test single prompts with immediate evaluation</p>
@@ -335,12 +341,23 @@ export default function PlaygroundPage() {
           
           <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
             <p className="text-yellow-800 text-sm">
-              <strong>Note:</strong> Make sure your API keys are configured in the backend .env file.
-              LLM Judge evaluators require OpenAI API access.
+              <strong>Note:</strong> Make sure your evaluator API keys are configured in{' '}
+              <Link href="/evaluators" className="text-blue-600 hover:text-blue-700 underline">
+                Evaluators
+              </Link>.
+              LLM Judge evaluators require API keys for the selected provider (OpenAI, Azure OpenAI, etc.).
             </p>
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+export default function PlaygroundPage() {
+  return (
+    <ProtectedRoute>
+      <PlaygroundPageContent />
+    </ProtectedRoute>
   )
 }

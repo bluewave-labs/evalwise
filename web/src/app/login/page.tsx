@@ -1,16 +1,27 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/contexts/auth-context'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, Button, Input, Label } from '@/components/ui'
 
-export default function LoginPage() {
+function LoginPageContent() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState('')
-  const { login, loading } = useAuth()
+  const { login, loading, isAuthenticated } = useAuth()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const returnTo = searchParams?.get('returnTo') || '/'
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push(returnTo)
+    }
+  }, [isAuthenticated, router, returnTo])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -18,6 +29,7 @@ export default function LoginPage() {
 
     try {
       await login(username, password, rememberMe)
+      // Redirect will happen via useEffect after login succeeds
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Login failed')
     }
@@ -101,10 +113,18 @@ export default function LoginPage() {
           <div className="mt-6 text-center text-sm text-muted-foreground">
             <p>Demo credentials:</p>
             <p><strong>Username:</strong> admin</p>
-            <p><strong>Password:</strong> admin123</p>
+            <p><strong>Password:</strong> adminadmin</p>
           </div>
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <LoginPageContent />
+    </Suspense>
   )
 }

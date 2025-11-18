@@ -3,6 +3,9 @@ from .base import BaseModelAdapter
 from .openai_adapter import OpenAIAdapter
 from .ollama_adapter import OllamaAdapter
 import os
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from database import get_db
 
 class ModelAdapterFactory:
     """Factory for creating model adapters"""
@@ -15,18 +18,51 @@ class ModelAdapterFactory:
     }
     
     @classmethod
+    def get_organization_api_key(cls, provider: str, organization_id: str, db: Session) -> Optional[str]:
+        """Retrieve and decrypt API key for provider from organization's stored keys"""
+        try:
+            from auth.models import EncryptedApiKey
+            from utils.encryption import encryption
+            
+            # Find the API key for this provider and organization
+            encrypted_key_record = db.query(EncryptedApiKey).filter(
+                EncryptedApiKey.provider == provider,
+                EncryptedApiKey.organization_id == organization_id,
+                EncryptedApiKey.is_active == True
+            ).first()
+            
+            if not encrypted_key_record:
+                return None
+            
+            # Decrypt the API key
+            return encryption.decrypt_api_key(encrypted_key_record.encrypted_key)
+            
+        except Exception as e:
+            print(f"Failed to retrieve API key for {provider}: {str(e)}")
+            return None
+    
+    @classmethod
     def create_adapter(
-        self,
+        cls,
         provider: str,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        organization_id: Optional[str] = None,
+        db: Optional[Session] = None
     ) -> BaseModelAdapter:
         """Create adapter for the specified provider"""
         
-        if provider not in self._adapters:
+        if provider not in cls._adapters:
             raise ValueError(f"Unsupported provider: {provider}")
         
-        adapter_class = self._adapters[provider]
+        adapter_class = cls._adapters[provider]
+        
+        # Try to get API key from organization's stored keys first
+        if not api_key and organization_id and db:
+            stored_api_key = cls.get_organization_api_key(provider, organization_id, db)
+            if stored_api_key:
+                api_key = stored_api_key
+                print(f"Using stored API key for {provider} from organization {organization_id}")
         
         # Handle provider-specific configurations
         if provider == "openai":

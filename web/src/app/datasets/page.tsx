@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Upload, Plus, Database, FileText, Table, ChevronLeft } from 'lucide-react'
 import { datasetApi } from '@/lib/api'
 import DatasetTableEditor from '@/components/dataset-table-editor'
+import ProtectedRoute from '@/components/protected-route'
 
 interface Dataset {
   id: string
@@ -15,7 +16,7 @@ interface Dataset {
   item_count?: number
 }
 
-export default function DatasetsPage() {
+function DatasetsPageContent() {
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -64,12 +65,17 @@ export default function DatasetsPage() {
 
   const handleCreateWithTable = async () => {
     try {
-      // Create a basic dataset first
-      const dataset = await createDataset(new Event('submit') as any)
+      // Avoid relying on pending state updates; create directly
+      const payload = { name: 'New Dataset', tags: [], is_synthetic: false }
+      const response = await datasetApi.create(payload)
+      const dataset = response.data
+      // Refresh list and open table editor for the new dataset
+      await loadDatasets()
       setEditingDataset(dataset)
       setShowTableEditor(true)
     } catch (error) {
       console.error('Failed to create dataset for table editing:', error)
+      alert('Failed to create dataset')
     }
   }
 
@@ -156,7 +162,7 @@ export default function DatasetsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto px-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Datasets</h1>
@@ -171,10 +177,7 @@ export default function DatasetsPage() {
             <span>Upload CSV</span>
           </button>
           <button
-            onClick={() => {
-              setNewDataset({ name: 'New Dataset', tags: [], is_synthetic: false })
-              handleCreateWithTable()
-            }}
+            onClick={handleCreateWithTable}
             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
           >
             <Table className="h-4 w-4" />
@@ -382,5 +385,13 @@ export default function DatasetsPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function DatasetsPage() {
+  return (
+    <ProtectedRoute>
+      <DatasetsPageContent />
+    </ProtectedRoute>
   )
 }

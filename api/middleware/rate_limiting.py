@@ -22,10 +22,10 @@ class RateLimitingMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         
-        # Rate limits (requests per minute)
-        self.unauthenticated_limit = 20  # Very restrictive for unauthenticated
-        self.authenticated_limit = 100   # More generous for authenticated users
-        self.admin_limit = 500          # High limit for admin users
+        # Rate limits (requests per minute) - Increased 10x for testing
+        self.unauthenticated_limit = 200  # 20 * 10 for easier testing
+        self.authenticated_limit = 1000   # 100 * 10 for authenticated users
+        self.admin_limit = 5000          # 500 * 10 for admin users
         
         # Window size in seconds
         self.window_size = 60

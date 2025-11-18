@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { Play, Plus, Clock, CheckCircle, XCircle, Activity, Settings, Key, Bot } from 'lucide-react'
 import { runApi, datasetApi, scenarioApi, evaluatorApi } from '@/lib/api'
 import Link from 'next/link'
+import ProtectedRoute from '@/components/protected-route'
 
 interface Run {
   id: string
@@ -49,7 +50,7 @@ interface Provider {
   created_at: string
 }
 
-export default function RunsPage() {
+function RunsPageContent() {
   const [runs, setRuns] = useState<Run[]>([])
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
@@ -241,14 +242,16 @@ export default function RunsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      <div className="max-w-7xl mx-auto px-6">
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto px-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Evaluation Runs</h1>
@@ -640,5 +643,13 @@ export default function RunsPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function RunsPage() {
+  return (
+    <ProtectedRoute>
+      <RunsPageContent />
+    </ProtectedRoute>
   )
 }

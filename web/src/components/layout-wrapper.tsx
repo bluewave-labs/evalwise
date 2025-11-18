@@ -29,7 +29,7 @@ export default function LayoutWrapper({ children }: LayoutWrapperProps) {
   return (
     <div className="min-h-screen">
       <Sidebar />
-      <main className="ml-64 p-6 transition-all duration-300 sidebar-main">
+      <main className="ml-64 p-6 sidebar-main">
         {children}
       </main>
     </div>

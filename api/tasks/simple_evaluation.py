@@ -11,7 +11,7 @@ import asyncio
 
 from models import Run, Result, Evaluation, Item, Scenario, Evaluator
 from evaluators.factory import EvaluatorFactory
-from scenarios.factory import ScenarioFactory
+from scenarios.factory import ScenarioGeneratorFactory
 from adapters.factory import ModelAdapterFactory
 
 # Database setup for Celery tasks
@@ -144,8 +144,8 @@ def process_simple_item(db, run: Run, item: Item, scenario: Scenario, evaluators
     final_prompt = input_text
     if scenario:
         try:
-            scenario_generator = ScenarioFactory.create_scenario(
-                scenario.type, 
+            scenario_generator = ScenarioGeneratorFactory.create_generator(
+                scenario.type,
                 scenario.params_json or {}
             )
             final_prompt = scenario_generator.generate_prompt(input_text, item.metadata_json)

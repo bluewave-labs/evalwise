@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Settings, Building2, Users, Shield, Key } from 'lucide-react'
+import { Settings, Building2, Users, Shield, Plus } from 'lucide-react'
 import { useAuth } from '@/contexts/auth-context'
 import { api } from '@/lib/api'
 import ProtectedRoute from '@/components/protected-route'
@@ -39,6 +39,15 @@ export default function SettingsPage() {
     role: 'member'
   })
   const [inviteLoading, setInviteLoading] = useState(false)
+  const [createUserForm, setCreateUserForm] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    password: '',
+    role: 'member'
+  })
+  const [createUserLoading, setCreateUserLoading] = useState(false)
+  const [showCreateUserForm, setShowCreateUserForm] = useState(false)
 
   useEffect(() => {
     loadOrganizations()
@@ -180,6 +189,82 @@ export default function SettingsPage() {
     }
   }
 
+  const handleCreateUser = async () => {
+    if (!createUserForm.first_name.trim()) {
+      alert('Please enter first name')
+      return
+    }
+    
+    if (!createUserForm.last_name.trim()) {
+      alert('Please enter last name')
+      return
+    }
+    
+    if (!createUserForm.email.trim()) {
+      alert('Please enter email address')
+      return
+    }
+    
+    // Check if email already exists in current members
+    const emailExists = members.some(member => 
+      member.email.toLowerCase() === createUserForm.email.toLowerCase()
+    )
+    if (emailExists) {
+      alert('A user with this email address already exists in the organization')
+      return
+    }
+    
+    if (!createUserForm.password.trim()) {
+      alert('Please enter password')
+      return
+    }
+    
+    if (createUserForm.password.length < 8) {
+      alert('Password must be at least 8 characters long')
+      return
+    }
+    
+    if (organizations.length === 0) {
+      alert('No organization found')
+      return
+    }
+    
+    setCreateUserLoading(true)
+    try {
+      const orgId = organizations[0].id
+      await api.post(`/organizations/${orgId}/members/create`, {
+        first_name: createUserForm.first_name,
+        last_name: createUserForm.last_name,
+        email: createUserForm.email,
+        password: createUserForm.password,
+        role: createUserForm.role
+      })
+      setCreateUserForm({ first_name: '', last_name: '', email: '', password: '', role: 'member' })
+      setShowCreateUserForm(false)
+      alert('User created successfully')
+      await loadMembers()
+    } catch (error: any) {
+      console.error('Failed to create user:', error)
+      let message = 'Failed to create user'
+      
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail
+        // If detail is an object with a message field
+        if (typeof detail === 'object' && detail.message) {
+          message = detail.message
+        } else if (typeof detail === 'string') {
+          message = detail
+        }
+      } else if (error.response?.data?.message) {
+        message = error.response.data.message
+      }
+      
+      alert(message)
+    } finally {
+      setCreateUserLoading(false)
+    }
+  }
+
   const handleUpdateMember = async (memberId: string, role: string) => {
     if (organizations.length === 0) return
     
@@ -214,16 +299,16 @@ export default function SettingsPage() {
     }
   }
 
+
   const tabs = [
     { id: 'organization', label: 'Organization', icon: Building2 },
     { id: 'team', label: 'Team Members', icon: Users },
-    { id: 'security', label: 'Security', icon: Shield },
-    { id: 'api-keys', label: 'API Keys', icon: Key }
+    { id: 'security', label: 'Security', icon: Shield }
   ]
 
   return (
     <ProtectedRoute>
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="max-w-7xl mx-auto px-6 space-y-6">
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center space-x-2">
@@ -257,9 +342,9 @@ export default function SettingsPage() {
         </div>
 
         {/* Content */}
-        <div className="bg-white rounded-lg p-6 border border-gray-200">
+        <div className="bg-white rounded-lg border border-gray-200">
           {activeTab === 'organization' && (
-            <div className="space-y-6">
+            <div className="space-y-6 p-6">
               <h2 className="text-xl font-semibold text-gray-900">Organization Settings</h2>
               
               {loading ? (
@@ -339,9 +424,118 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'team' && (
-            <div className="space-y-6">
+            <div className="space-y-6 p-6">
               <h2 className="text-xl font-semibold text-gray-900">Team Members</h2>
               <p className="text-gray-600">Manage team members and permissions</p>
+              
+              {/* Create User Directly */}
+              <div className="bg-white rounded-lg border border-gray-200">
+                <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+                  <h3 className="font-medium text-gray-900">Create New User</h3>
+                  <button
+                    onClick={() => setShowCreateUserForm(!showCreateUserForm)}
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm flex items-center space-x-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Create User</span>
+                  </button>
+                </div>
+
+                {showCreateUserForm && (
+                  <div className="p-4 border-b border-gray-200 bg-gray-50">
+                    <div className="space-y-4 max-w-4xl">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            First Name *
+                          </label>
+                          <input
+                            type="text"
+                            value={createUserForm.first_name}
+                            onChange={(e) => setCreateUserForm({ ...createUserForm, first_name: e.target.value })}
+                            placeholder="John"
+                            className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Last Name *
+                          </label>
+                          <input
+                            type="text"
+                            value={createUserForm.last_name}
+                            onChange={(e) => setCreateUserForm({ ...createUserForm, last_name: e.target.value })}
+                            placeholder="Doe"
+                            className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Email Address *
+                          </label>
+                          <input
+                            type="email"
+                            value={createUserForm.email}
+                            onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value })}
+                            placeholder="john.doe@example.com"
+                            className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Password *
+                          </label>
+                          <input
+                            type="password"
+                            value={createUserForm.password}
+                            onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })}
+                            placeholder="Minimum 8 characters"
+                            className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Role
+                          </label>
+                          <select
+                            value={createUserForm.role}
+                            onChange={(e) => setCreateUserForm({ ...createUserForm, role: e.target.value })}
+                            className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
+                          >
+                            <option value="member">Member</option>
+                            <option value="admin">Admin</option>
+                            <option value="viewer">Viewer</option>
+                          </select>
+                        </div>
+                        <div className="flex items-end space-x-2">
+                          <button
+                            onClick={handleCreateUser}
+                            disabled={createUserLoading || !createUserForm.first_name.trim() || !createUserForm.last_name.trim() || !createUserForm.email.trim() || !createUserForm.password.trim()}
+                            className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded text-sm"
+                          >
+                            {createUserLoading ? 'Creating...' : 'Create User'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowCreateUserForm(false)
+                              setCreateUserForm({ first_name: '', last_name: '', email: '', password: '', role: 'member' })
+                            }}
+                            className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
               
               {/* Invite New Member */}
               <div className="bg-gray-50 rounded-lg p-4">
@@ -457,7 +651,7 @@ export default function SettingsPage() {
           )}
 
           {activeTab === 'security' && (
-            <div className="space-y-6">
+            <div className="space-y-6 p-6">
               <h2 className="text-xl font-semibold text-gray-900">Security Settings</h2>
               
               <div className="space-y-4">
@@ -511,55 +705,6 @@ export default function SettingsPage() {
           )}
 
 
-          {activeTab === 'api-keys' && (
-            <div className="space-y-6">
-              <h2 className="text-xl font-semibold text-gray-900">API Keys</h2>
-              <p className="text-gray-600">Manage API keys for programmatic access</p>
-              
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <p className="text-yellow-800 text-sm">
-                  <strong>Note:</strong> Store your API keys securely. They provide full access to your account.
-                </p>
-              </div>
-              
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="font-medium text-gray-900 mb-4">Generate New API Key</h3>
-                <div className="space-y-3 max-w-md">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Key Name *
-                    </label>
-                    <input
-                      type="text"
-                      value={apiKeyForm.name}
-                      onChange={(e) => setApiKeyForm({ ...apiKeyForm, name: e.target.value })}
-                      placeholder="e.g., Production API Key"
-                      className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Description (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={apiKeyForm.description}
-                      onChange={(e) => setApiKeyForm({ ...apiKeyForm, description: e.target.value })}
-                      placeholder="e.g., Used for automated evaluations"
-                      className="w-full bg-white border border-gray-300 rounded px-3 py-2 text-gray-900"
-                    />
-                  </div>
-                  <button
-                    onClick={handleGenerateApiKey}
-                    disabled={apiKeyLoading || !apiKeyForm.name.trim()}
-                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded text-sm"
-                  >
-                    {apiKeyLoading ? 'Generating...' : 'Generate New API Key'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </ProtectedRoute>

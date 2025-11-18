@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/auth-context'
 
 interface ProtectedRouteProps {
@@ -18,15 +18,14 @@ export default function ProtectedRoute({
   const { user, loading } = useAuth()
   const router = useRouter()
 
+  const pathname = usePathname()
+
   useEffect(() => {
     if (!loading) {
       if (!user) {
-        // Store the current path to redirect back after login
-        const currentPath = window.location.pathname
-        if (currentPath !== '/login') {
-          localStorage.setItem('redirectPath', currentPath)
-        }
-        router.push(redirectTo)
+        // Use URL parameter instead of localStorage for better UX
+        const returnTo = encodeURIComponent(pathname || '/')
+        router.push(`${redirectTo}?returnTo=${returnTo}`)
         return
       }
 
@@ -35,7 +34,7 @@ export default function ProtectedRoute({
         return
       }
     }
-  }, [user, loading, requireAdmin, router, redirectTo])
+  }, [user, loading, requireAdmin, router, redirectTo, pathname])
 
   // Show loading spinner while checking authentication
   if (loading) {

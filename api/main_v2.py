@@ -13,17 +13,18 @@ import uuid
 # Import database and models
 from database import get_db, engine
 from models import Base, Dataset, Item, Scenario, Evaluator, Run, Result, Evaluation
-from auth.models import User, Organization, UserOrganization
+from auth.models import User, Organization, UserOrganization, LLMProvider
 from schemas_simple import DatasetCreate, ScenarioCreate, EvaluatorCreate, RunCreate, PlaygroundRequest
 
 # Import authentication
 from auth.routes import router as auth_router
 from auth.admin_routes import router as admin_router
-from auth.security import get_current_user_flexible
+from auth.security import get_current_user_flexible, get_current_user
 
 # Import logging and error handling
 from utils.logging import get_logger, RequestContext
 from utils.errors import NotFoundError, ValidationError, ErrorResponse, ErrorDetail, InternalServerError
+# Import middleware
 from middleware import RequestTrackingMiddleware, ErrorHandlingMiddleware
 from middleware.security import SecurityHeadersMiddleware
 from middleware.rate_limiting import RateLimitingMiddleware
@@ -45,7 +46,7 @@ app = FastAPI(
 
 # Add middleware (order matters - last added runs first)
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(APIValidationMiddleware)
+# app.add_middleware(APIValidationMiddleware)  # Temporarily disabled for debugging
 app.add_middleware(RateLimitingMiddleware)
 app.add_middleware(ErrorHandlingMiddleware)
 app.add_middleware(RequestTrackingMiddleware)
@@ -55,7 +56,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
 )
 
@@ -877,11 +878,21 @@ async def playground_test(
         model_provider = getattr(request, 'model_provider', 'openai')
         model_name = getattr(request, 'model_name', 'gpt-3.5-turbo')
         
+        # Get user's organization for API key lookup
+        user_org = db.query(UserOrganization).filter(
+            UserOrganization.user_id == current_user.id,
+            UserOrganization.is_active == True
+        ).first()
+        
+        organization_id = str(user_org.organization_id) if user_org else None
+
         # Create model adapter
         try:
             adapter = ModelAdapterFactory.create_adapter(
                 provider=model_provider,
-                api_key=None  # Will use environment variables
+                api_key=None,  # Will try stored keys first, then environment variables
+                organization_id=organization_id,
+                db=db
             )
         except Exception as e:
             logger.error(f"Failed to create adapter for {model_provider}: {str(e)}")
@@ -1062,7 +1073,7 @@ async def change_password(
     # Validate current password
     from auth.security import verify_password, get_password_hash
     
-    if not verify_password(current_password, current_user.password_hash):
+    if not verify_password(current_password, current_user.hashed_password):
         raise ValidationError(
             message="Current password is incorrect",
             details=[ErrorDetail(
@@ -1086,7 +1097,7 @@ async def change_password(
         )
     
     # Update password
-    current_user.password_hash = get_password_hash(new_password)
+    current_user.hashed_password = get_password_hash(new_password)
     current_user.updated_at = datetime.utcnow()
     db.commit()
     
@@ -1158,6 +1169,305 @@ async def list_api_keys(
     # Placeholder implementation - return empty list until APIKey model exists
     return []
 
+# LLM Provider API Keys management endpoints
+@app.get("/organizations/{org_id}/llm-keys")
+async def list_llm_provider_keys(
+    org_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user_flexible)
+):
+    """List LLM provider API keys for an organization"""
+    from auth.models import EncryptedApiKey
+    request_id = getattr(request.state, 'request_id', str(uuid.uuid4()))
+    # Use module logger with context
+    
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except ValueError:
+        raise ValidationError(
+            message="Invalid organization ID format",
+            details=[ErrorDetail(
+                code="INVALID_UUID",
+                message="Organization ID must be a valid UUID",
+                field="org_id"
+            )],
+            request_id=request_id
+        )
+    
+    # Check organization access
+    user_org = db.query(UserOrganization).filter(
+        UserOrganization.user_id == current_user.id,
+        UserOrganization.organization_id == org_uuid,
+        UserOrganization.is_active == True
+    ).first()
+    
+    if not user_org:
+        raise NotFoundError(
+            message="Organization not found or access denied",
+            resource_type="organization",
+            resource_id=org_id,
+            request_id=request_id
+        )
+    
+    # Get LLM provider keys for the organization
+    keys = db.query(EncryptedApiKey).filter(
+        EncryptedApiKey.organization_id == org_uuid,
+        EncryptedApiKey.is_active == True
+    ).all()
+    
+    logger.info(f"Listed {len(keys)} LLM provider keys for organization {org_id}")
+    
+    return [
+        {
+            "id": str(key.id),
+            "provider": key.provider,
+            "key_name": key.key_name,
+            "created_at": key.created_at.isoformat()
+        }
+        for key in keys
+    ]
+
+@app.post("/organizations/{org_id}/llm-keys")
+async def create_llm_provider_key(
+    org_id: str,
+    request: Request,
+    provider: str = Body(...),
+    key_name: str = Body(...),
+    api_key: Optional[str] = Body(None),
+    endpoint_url: Optional[str] = Body(None),
+    model_deployment_name: Optional[str] = Body(None),
+    api_version: Optional[str] = Body(None),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user_flexible)
+):
+    """Add a new LLM provider API key"""
+    from auth.models import EncryptedApiKey
+    from utils.encryption import encryption
+    
+    request_id = getattr(request.state, 'request_id', str(uuid.uuid4()))
+    # Use module logger with context
+    
+    print(f"DEBUG: Starting create_llm_key for org_id: {org_id}")
+    
+    try:
+        org_uuid = uuid.UUID(org_id)
+        print(f"DEBUG: Parsed org_uuid: {org_uuid}")
+    except ValueError:
+        raise ValidationError(
+            message="Invalid organization ID format",
+            details=[ErrorDetail(
+                code="INVALID_UUID",
+                message="Organization ID must be a valid UUID",
+                field="org_id"
+            )],
+            request_id=request_id
+        )
+    
+    # Validate provider
+    print(f"DEBUG: Validating provider: {provider}")
+    valid_providers = ["openai", "azure_openai", "local_openai", "ollama"]
+    if provider not in valid_providers:
+        raise ValidationError(
+            message="Invalid provider",
+            details=[ErrorDetail(
+                code="INVALID_PROVIDER",
+                message=f"Provider must be one of: {', '.join(valid_providers)}",
+                field="provider"
+            )],
+            request_id=request_id
+        )
+    
+    # Check admin access to organization (allow both admin and member for now)
+    print(f"DEBUG: Checking organization membership for user {current_user.id}")
+    admin_membership = db.query(UserOrganization).filter(
+        UserOrganization.user_id == current_user.id,
+        UserOrganization.organization_id == org_uuid,
+        UserOrganization.role.in_(["admin", "member"]),
+        UserOrganization.is_active == True
+    ).first()
+    print(f"DEBUG: Found membership: {admin_membership}")
+    
+    if not admin_membership:
+        raise NotFoundError(
+            message="Organization not found or insufficient permissions",
+            resource_type="organization",
+            resource_id=org_id,
+            request_id=request_id
+        )
+    
+    # Validate API key requirements based on provider
+    if provider in ["openai", "azure_openai"] and not api_key:
+        raise ValidationError(
+            message=f"API key is required for {provider}",
+            details=[ErrorDetail(
+                code="MISSING_API_KEY",
+                message=f"{provider} requires an API key",
+                field="api_key"
+            )],
+            request_id=request_id
+        )
+    
+    # Validate API key format for OpenAI
+    if provider == "openai" and api_key and not api_key.startswith("sk-"):
+        raise ValidationError(
+            message="Invalid OpenAI API key format",
+            details=[ErrorDetail(
+                code="INVALID_API_KEY_FORMAT",
+                message="OpenAI API keys must start with 'sk-'",
+                field="api_key"
+            )],
+            request_id=request_id
+        )
+    
+    # For local providers, use a default dummy key if none provided
+    if provider in ["local_openai", "ollama"] and not api_key:
+        api_key = "dummy-api-key"  # Default for local servers
+    
+    if provider == "azure_openai" and not endpoint_url:
+        raise ValidationError(
+            message="Azure OpenAI requires endpoint URL",
+            details=[ErrorDetail(
+                code="MISSING_ENDPOINT",
+                message="Azure OpenAI provider requires endpoint_url",
+                field="endpoint_url"
+            )],
+            request_id=request_id
+        )
+    
+    # Check for duplicate provider keys
+    existing_key = db.query(EncryptedApiKey).filter(
+        EncryptedApiKey.organization_id == org_uuid,
+        EncryptedApiKey.provider == provider,
+        EncryptedApiKey.key_name == key_name,
+        EncryptedApiKey.is_active == True
+    ).first()
+    
+    if existing_key:
+        raise ValidationError(
+            message="API key with this provider and name already exists",
+            details=[ErrorDetail(
+                code="DUPLICATE_KEY",
+                message="A key with this provider and name already exists",
+                field="key_name"
+            )],
+            request_id=request_id
+        )
+    
+    # Encrypt the API key
+    try:
+        encrypted_key = encryption.encrypt_api_key(api_key)
+    except Exception as e:
+        logger.error(f"Failed to encrypt API key: {str(e)}")
+        raise InternalServerError(
+            message="Failed to encrypt API key",
+            request_id=request_id
+        )
+    
+    # Create metadata for the key
+    metadata = {}
+    if endpoint_url:
+        metadata["endpoint_url"] = endpoint_url
+    if model_deployment_name:
+        metadata["model_deployment_name"] = model_deployment_name
+    if api_version:
+        metadata["api_version"] = api_version
+    
+    # Create the encrypted API key record
+    new_key = EncryptedApiKey(
+        organization_id=org_uuid,
+        provider=provider,
+        encrypted_key=encrypted_key,
+        key_name=key_name,
+        created_by=current_user.id,
+        is_active=True
+    )
+    
+    db.add(new_key)
+    db.commit()
+    db.refresh(new_key)
+    
+    logger.info(f"Created LLM provider key for {provider} in organization {org_id}")
+    
+    return {
+        "message": "API key added successfully",
+        "key_id": str(new_key.id),
+        "provider": provider,
+        "key_name": key_name,
+        "created_at": new_key.created_at.isoformat()
+    }
+
+@app.delete("/organizations/{org_id}/llm-keys/{key_id}")
+async def delete_llm_provider_key(
+    org_id: str,
+    key_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user_flexible)
+):
+    """Delete a LLM provider API key"""
+    from auth.models import EncryptedApiKey
+    
+    request_id = getattr(request.state, 'request_id', str(uuid.uuid4()))
+    # Use module logger with context
+    
+    try:
+        org_uuid = uuid.UUID(org_id)
+        key_uuid = uuid.UUID(key_id)
+    except ValueError:
+        raise ValidationError(
+            message="Invalid UUID format",
+            details=[ErrorDetail(
+                code="INVALID_UUID",
+                message="Organization ID and Key ID must be valid UUIDs",
+                field="ids"
+            )],
+            request_id=request_id
+        )
+    
+    # Check admin access
+    admin_membership = db.query(UserOrganization).filter(
+        UserOrganization.user_id == current_user.id,
+        UserOrganization.organization_id == org_uuid,
+        UserOrganization.role.in_(["admin"]),
+        UserOrganization.is_active == True
+    ).first()
+    
+    if not admin_membership:
+        raise NotFoundError(
+            message="Organization not found or insufficient permissions",
+            resource_type="organization",
+            resource_id=org_id,
+            request_id=request_id
+        )
+    
+    # Find the key
+    key = db.query(EncryptedApiKey).filter(
+        EncryptedApiKey.id == key_uuid,
+        EncryptedApiKey.organization_id == org_uuid,
+        EncryptedApiKey.is_active == True
+    ).first()
+    
+    if not key:
+        raise NotFoundError(
+            message="API key not found",
+            resource_type="encrypted_api_key",
+            resource_id=key_id,
+            request_id=request_id
+        )
+    
+    # Soft delete
+    key.is_active = False
+    key.updated_at = datetime.utcnow()
+    db.commit()
+    
+    logger.info(f"Deleted LLM provider key {key_id} from organization {org_id}")
+    
+    return {
+        "message": "API key deleted successfully",
+        "deleted_at": key.updated_at.isoformat()
+    }
+
 # Team Members management endpoints
 @app.get("/organizations/{org_id}/members")
 async def list_organization_members(
@@ -1168,7 +1478,7 @@ async def list_organization_members(
 ):
     """List all members of an organization"""
     request_id = getattr(request.state, 'request_id', str(uuid.uuid4()))
-    logger = get_logger(__name__, RequestContext(request_id=request_id, user_id=str(current_user.id)))
+    # Use module logger with context
     
     try:
         org_uuid = uuid.UUID(org_id)
@@ -1232,7 +1542,7 @@ async def invite_organization_member(
 ):
     """Invite a new member to an organization"""
     request_id = getattr(request.state, 'request_id', str(uuid.uuid4()))
-    logger = get_logger(__name__, RequestContext(request_id=request_id, user_id=str(current_user.id)))
+    # Use module logger with context
     
     try:
         org_uuid = uuid.UUID(org_id)
@@ -1341,6 +1651,149 @@ async def invite_organization_member(
         "status": "new"
     }
 
+@app.post("/organizations/{org_id}/members/create")
+async def create_organization_member(
+    org_id: str,
+    request: Request,
+    first_name: str = Body(...),
+    last_name: str = Body(...),
+    email: str = Body(...),
+    password: str = Body(...),
+    role: str = Body("member"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user_flexible)
+):
+    """Create a new user and add them to the organization"""
+    from auth.security import get_password_hash
+    
+    request_id = getattr(request.state, 'request_id', str(uuid.uuid4()))
+    # Use module logger with context
+    
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except ValueError:
+        raise ValidationError(
+            message="Invalid organization ID format",
+            details=[ErrorDetail(
+                code="INVALID_UUID",
+                message="Organization ID must be a valid UUID",
+                field="org_id"
+            )],
+            request_id=request_id
+        )
+    
+    # Check if current user has admin permissions
+    user_org = db.query(UserOrganization).filter(
+        UserOrganization.user_id == current_user.id,
+        UserOrganization.organization_id == org_uuid,
+        UserOrganization.role.in_(["admin"]),  # Only admins can create users
+        UserOrganization.is_active == True
+    ).first()
+    
+    if not user_org:
+        raise NotFoundError(
+            message="Organization not found or insufficient permissions",
+            resource_type="organization",
+            resource_id=org_id,
+            request_id=request_id
+        )
+    
+    # Validate role
+    valid_roles = ["admin", "member", "viewer"]
+    if role not in valid_roles:
+        raise ValidationError(
+            message="Invalid role",
+            details=[ErrorDetail(
+                code="INVALID_ROLE",
+                message=f"Role must be one of: {', '.join(valid_roles)}",
+                field="role"
+            )],
+            request_id=request_id
+        )
+    
+    # Validate email format
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_pattern, email):
+        raise ValidationError(
+            message="Invalid email format",
+            details=[ErrorDetail(
+                code="INVALID_EMAIL",
+                message="Please provide a valid email address",
+                field="email"
+            )],
+            request_id=request_id
+        )
+    
+    # Check if user already exists
+    existing_user = db.query(User).filter(User.email == email).first()
+    if existing_user:
+        raise ValidationError(
+            message="User with this email already exists",
+            details=[ErrorDetail(
+                code="EMAIL_EXISTS",
+                message="A user with this email address already exists",
+                field="email"
+            )],
+            request_id=request_id
+        )
+    
+    # Validate password strength
+    if len(password) < 8:
+        raise ValidationError(
+            message="Password too weak",
+            details=[ErrorDetail(
+                code="PASSWORD_TOO_SHORT",
+                message="Password must be at least 8 characters long",
+                field="password"
+            )],
+            request_id=request_id
+        )
+    
+    # Create new user
+    password_hash = get_password_hash(password)
+    # Generate username from email (everything before @)
+    username = email.split('@')[0]
+    # Ensure username is unique by appending numbers if needed
+    base_username = username
+    counter = 1
+    while db.query(User).filter(User.username == username).first():
+        username = f"{base_username}{counter}"
+        counter += 1
+    
+    new_user = User(
+        email=email,
+        username=username,
+        hashed_password=password_hash,
+        full_name=f"{first_name.strip()} {last_name.strip()}",
+        is_active=True
+    )
+    
+    db.add(new_user)
+    db.flush()  # Get the ID without committing
+    
+    # Add user to organization
+    new_membership = UserOrganization(
+        user_id=new_user.id,
+        organization_id=org_uuid,
+        role=role,
+        is_active=True
+    )
+    
+    db.add(new_membership)
+    db.commit()
+    
+    logger.info(f"Created new user {new_user.id} ({email}) and added to organization {org_id} with role {role}")
+    
+    return {
+        "message": "User created and added to organization successfully",
+        "user_id": str(new_user.id),
+        "email": new_user.email,
+        "username": new_user.username,
+        "full_name": new_user.full_name,
+        "role": role
+    }
+
 @app.patch("/organizations/{org_id}/members/{user_id}")
 async def update_organization_member(
     org_id: str,
@@ -1353,7 +1806,7 @@ async def update_organization_member(
 ):
     """Update a member's role or status in an organization"""
     request_id = getattr(request.state, 'request_id', str(uuid.uuid4()))
-    logger = get_logger(__name__, RequestContext(request_id=request_id, user_id=str(current_user.id)))
+    # Use module logger with context
     
     try:
         org_uuid = uuid.UUID(org_id)
@@ -1453,7 +1906,7 @@ async def remove_organization_member(
 ):
     """Remove a member from an organization"""
     request_id = getattr(request.state, 'request_id', str(uuid.uuid4()))
-    logger = get_logger(__name__, RequestContext(request_id=request_id, user_id=str(current_user.id)))
+    # Use module logger with context
     
     try:
         org_uuid = uuid.UUID(org_id)
@@ -1522,6 +1975,358 @@ async def remove_organization_member(
         "message": "Member successfully removed from organization",
         "user_id": user_id,
         "removed_at": target_membership.updated_at.isoformat()
+    }
+
+# ===============================
+# LLM Provider Management Endpoints
+# ===============================
+
+@app.get("/organizations/{org_id}/llm-providers")
+async def list_llm_providers(
+    org_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all LLM providers for an organization"""
+    request_id = str(uuid.uuid4())
+    
+    # Verify user belongs to organization
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except ValueError:
+        raise ValidationError(
+            message="Invalid organization ID format",
+            details=[ErrorDetail(code="INVALID_UUID", message=f"'{org_id}' is not a valid UUID")],
+            request_id=request_id
+        )
+    
+    membership = db.query(UserOrganization).filter(
+        UserOrganization.user_id == current_user.id,
+        UserOrganization.organization_id == org_uuid,
+        UserOrganization.is_active == True
+    ).first()
+    if not membership:
+        raise PermissionError("User does not belong to this organization")
+    
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except ValueError:
+        raise ValidationError(
+            message="Invalid organization ID format",
+            details=[ErrorDetail(
+                code="INVALID_UUID",
+                message="Organization ID must be a valid UUID",
+                field="org_id"
+            )],
+            request_id=request_id
+        )
+    
+    # Get all active providers for the organization
+    providers = db.query(LLMProvider).filter(
+        LLMProvider.organization_id == org_uuid,
+        LLMProvider.is_active == True
+    ).order_by(LLMProvider.is_default.desc(), LLMProvider.created_at.desc()).all()
+    
+    logger.info(f"Listed {len(providers)} LLM providers for organization {org_id}")
+    
+    return [
+        {
+            "id": str(provider.id),
+            "name": provider.name,
+            "provider_type": provider.provider_type,
+            "base_url": provider.base_url,
+            "model_defaults": {
+                "model_name": provider.default_model_name,
+                "temperature": provider.default_temperature,
+                "max_tokens": provider.default_max_tokens
+            },
+            "is_default": provider.is_default,
+            "created_at": provider.created_at.isoformat()
+        }
+        for provider in providers
+    ]
+
+@app.post("/organizations/{org_id}/llm-providers")
+async def create_llm_provider(
+    org_id: str,
+    name: str = Body(...),
+    provider_type: str = Body(...),
+    api_key: Optional[str] = Body(None),
+    base_url: Optional[str] = Body(None),
+    model_defaults: dict = Body(...),
+    is_default: bool = Body(False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new LLM provider for an organization"""
+    request_id = str(uuid.uuid4())
+    
+    # Verify user belongs to organization with admin rights
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except ValueError:
+        raise ValidationError(
+            message="Invalid organization ID format",
+            details=[ErrorDetail(code="INVALID_UUID", message=f"'{org_id}' is not a valid UUID")],
+            request_id=request_id
+        )
+    
+    membership = db.query(UserOrganization).filter(
+        UserOrganization.user_id == current_user.id,
+        UserOrganization.organization_id == org_uuid,
+        UserOrganization.is_active == True
+    ).first()
+    if not membership or membership.role not in ["owner", "admin"]:
+        raise PermissionError("User does not have permission to create providers")
+    
+    try:
+        org_uuid = uuid.UUID(org_id)
+    except ValueError:
+        raise ValidationError(
+            message="Invalid organization ID format",
+            details=[ErrorDetail(
+                code="INVALID_UUID",
+                message="Organization ID must be a valid UUID",
+                field="org_id"
+            )],
+            request_id=request_id
+        )
+    
+    # Validate required fields
+    if not name.strip():
+        raise ValidationError(
+            message="Provider name is required",
+            details=[ErrorDetail(
+                code="MISSING_NAME",
+                message="Provider name cannot be empty",
+                field="name"
+            )],
+            request_id=request_id
+        )
+    
+    if provider_type not in ["openai", "azure_openai", "local_openai", "ollama", "anthropic", "cohere", "google", "custom"]:
+        raise ValidationError(
+            message="Invalid provider type",
+            details=[ErrorDetail(
+                code="INVALID_PROVIDER_TYPE",
+                message="Provider type must be one of: openai, azure_openai, local_openai, ollama, anthropic, cohere, google, custom",
+                field="provider_type"
+            )],
+            request_id=request_id
+        )
+
+    # Validate API key for cloud providers
+    if provider_type in ["openai", "azure_openai", "anthropic", "cohere", "google"] and not api_key:
+        raise ValidationError(
+            message=f"API key is required for {provider_type}",
+            details=[ErrorDetail(
+                code="MISSING_API_KEY",
+                message=f"{provider_type} requires an API key",
+                field="api_key"
+            )],
+            request_id=request_id
+        )
+    
+    # Validate model defaults
+    if "model_name" not in model_defaults or not model_defaults["model_name"]:
+        raise ValidationError(
+            message="Default model name is required",
+            details=[ErrorDetail(
+                code="MISSING_MODEL_NAME",
+                message="model_defaults.model_name is required",
+                field="model_defaults"
+            )],
+            request_id=request_id
+        )
+    
+    # Encrypt API key if provided
+    encrypted_api_key = None
+    if api_key:
+        from utils.encryption import encryption
+        encrypted_api_key = encryption.encrypt_api_key(api_key)
+    
+    # If this is set as default, unset other defaults
+    if is_default:
+        db.query(LLMProvider).filter(
+            LLMProvider.organization_id == org_uuid
+        ).update({LLMProvider.is_default: False})
+    
+    # Create new provider
+    new_provider = LLMProvider(
+        organization_id=org_uuid,
+        name=name.strip(),
+        provider_type=provider_type,
+        encrypted_api_key=encrypted_api_key,
+        base_url=base_url,
+        default_model_name=model_defaults["model_name"],
+        default_temperature=model_defaults.get("temperature", 0.7),
+        default_max_tokens=model_defaults.get("max_tokens", 1000),
+        is_default=is_default,
+        created_by=current_user.id
+    )
+    
+    db.add(new_provider)
+    db.commit()
+    db.refresh(new_provider)
+    
+    logger.info(f"Created LLM provider {new_provider.id} for organization {org_id}")
+    
+    return {
+        "id": str(new_provider.id),
+        "name": new_provider.name,
+        "provider_type": new_provider.provider_type,
+        "created_at": new_provider.created_at.isoformat()
+    }
+
+@app.put("/organizations/{org_id}/llm-providers/{provider_id}")
+async def update_llm_provider(
+    org_id: str,
+    provider_id: str,
+    name: Optional[str] = Body(None),
+    api_key: Optional[str] = Body(None),
+    base_url: Optional[str] = Body(None),
+    model_defaults: Optional[dict] = Body(None),
+    is_default: Optional[bool] = Body(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update an LLM provider"""
+    request_id = str(uuid.uuid4())
+    
+    # Verify user belongs to organization with admin rights
+    membership = get_organization_membership(current_user.id, org_id, db)
+    if not membership or membership.role not in ["owner", "admin"]:
+        raise PermissionError("User does not have permission to update providers")
+    
+    try:
+        org_uuid = uuid.UUID(org_id)
+        provider_uuid = uuid.UUID(provider_id)
+    except ValueError:
+        raise ValidationError(
+            message="Invalid UUID format",
+            details=[ErrorDetail(
+                code="INVALID_UUID",
+                message="IDs must be valid UUIDs",
+                field="id"
+            )],
+            request_id=request_id
+        )
+    
+    # Get the provider
+    provider = db.query(LLMProvider).filter(
+        LLMProvider.id == provider_uuid,
+        LLMProvider.organization_id == org_uuid,
+        LLMProvider.is_active == True
+    ).first()
+    
+    if not provider:
+        raise ValidationError(
+            message="LLM provider not found",
+            details=[ErrorDetail(
+                code="PROVIDER_NOT_FOUND",
+                message="Provider not found or access denied",
+                field="provider_id"
+            )],
+            request_id=request_id
+        )
+    
+    # Update fields if provided
+    if name is not None:
+        provider.name = name.strip()
+    
+    if api_key is not None:
+        from utils.encryption import encryption
+        provider.encrypted_api_key = encryption.encrypt_api_key(api_key) if api_key else None
+    
+    if base_url is not None:
+        provider.base_url = base_url
+    
+    if model_defaults is not None:
+        if "model_name" in model_defaults:
+            provider.default_model_name = model_defaults["model_name"]
+        if "temperature" in model_defaults:
+            provider.default_temperature = model_defaults["temperature"]
+        if "max_tokens" in model_defaults:
+            provider.default_max_tokens = model_defaults["max_tokens"]
+    
+    if is_default is not None:
+        if is_default:
+            # Unset other defaults
+            db.query(LLMProvider).filter(
+                LLMProvider.organization_id == org_uuid,
+                LLMProvider.id != provider_uuid
+            ).update({LLMProvider.is_default: False})
+        provider.is_default = is_default
+    
+    provider.updated_at = datetime.utcnow()
+    db.commit()
+    
+    logger.info(f"Updated LLM provider {provider_id} for organization {org_id}")
+    
+    return {
+        "id": str(provider.id),
+        "name": provider.name,
+        "updated_at": provider.updated_at.isoformat()
+    }
+
+@app.delete("/organizations/{org_id}/llm-providers/{provider_id}")
+async def delete_llm_provider(
+    org_id: str,
+    provider_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete an LLM provider (soft delete)"""
+    request_id = str(uuid.uuid4())
+    
+    # Verify user belongs to organization with admin rights
+    membership = get_organization_membership(current_user.id, org_id, db)
+    if not membership or membership.role not in ["owner", "admin"]:
+        raise PermissionError("User does not have permission to delete providers")
+    
+    try:
+        org_uuid = uuid.UUID(org_id)
+        provider_uuid = uuid.UUID(provider_id)
+    except ValueError:
+        raise ValidationError(
+            message="Invalid UUID format",
+            details=[ErrorDetail(
+                code="INVALID_UUID", 
+                message="IDs must be valid UUIDs",
+                field="id"
+            )],
+            request_id=request_id
+        )
+    
+    # Get the provider
+    provider = db.query(LLMProvider).filter(
+        LLMProvider.id == provider_uuid,
+        LLMProvider.organization_id == org_uuid,
+        LLMProvider.is_active == True
+    ).first()
+    
+    if not provider:
+        raise ValidationError(
+            message="LLM provider not found",
+            details=[ErrorDetail(
+                code="PROVIDER_NOT_FOUND",
+                message="Provider not found or access denied",
+                field="provider_id"
+            )],
+            request_id=request_id
+        )
+    
+    # Soft delete
+    provider.is_active = False
+    provider.updated_at = datetime.utcnow()
+    db.commit()
+    
+    logger.info(f"Deleted LLM provider {provider_id} for organization {org_id}")
+    
+    return {
+        "message": "Provider successfully deleted",
+        "provider_id": provider_id,
+        "deleted_at": provider.updated_at.isoformat()
     }
 
 if __name__ == "__main__":

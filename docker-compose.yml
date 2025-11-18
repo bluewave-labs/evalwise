@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-evalwise}
       POSTGRES_USER: ${POSTGRES_USER:-evalwise}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}  # Required - no default
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-evalwise123}
     ports:
       - "5432:5432"
     volumes:
@@ -32,12 +32,16 @@ services:
     ports:
       - "8003:8000"
     env_file:
-      - .env
+      - ./api/.env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-evalwise}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-evalwise}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-evalwise}:${POSTGRES_PASSWORD:-evalwise123}@postgres:5432/${POSTGRES_DB:-evalwise}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+      API_ENCRYPTION_KEY: bab7ada6bbadbd20e52c01f8a891caf151f3e3c9f3b8a0e34b486ca6bda0b866
+      POSTGRES_PASSWORD: evalwise123
+      SECRET_KEY: your-super-secret-key-for-sessions-change-in-production
+      JWT_SECRET_KEY: your-super-secret-jwt-key-change-in-production
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,7 +56,7 @@ services:
       context: ./api
       dockerfile: Dockerfile
     env_file:
-      - .env
+      - ./api/.env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-evalwise}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-evalwise}
       REDIS_URL: redis://redis:6379/0

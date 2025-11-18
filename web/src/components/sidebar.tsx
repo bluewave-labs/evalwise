@@ -34,11 +34,6 @@ const navigationItems = [
     icon: Database
   },
   {
-    name: 'Scenarios',
-    href: '/scenarios',
-    icon: FileText
-  },
-  {
     name: 'Evaluators',
     href: '/evaluators',
     icon: TestTube
@@ -47,6 +42,11 @@ const navigationItems = [
     name: 'Runs',
     href: '/runs',
     icon: Play
+  },
+  {
+    name: 'Scenarios',
+    href: '/scenarios',
+    icon: FileText
   },
   {
     name: 'Providers',

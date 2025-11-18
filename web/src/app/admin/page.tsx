@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import ProtectedRoute from '@/components/protected-route'
 import { 
   Users, 
   Building2, 
@@ -57,7 +58,7 @@ interface NewUser {
   rate_limit_tier: string
 }
 
-export default function AdminPage() {
+function AdminPageContent() {
   const { user, token } = useAuth()
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [users, setUsers] = useState<User[]>([])
@@ -201,7 +202,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto px-6 space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
@@ -365,5 +366,13 @@ export default function AdminPage() {
         error={error}
       />
     </div>
+  )
+}
+
+export default function AdminPage() {
+  return (
+    <ProtectedRoute requireAdmin={true}>
+      <AdminPageContent />
+    </ProtectedRoute>
   )
 }

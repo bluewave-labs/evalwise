@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Integer, Float
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -24,6 +24,7 @@ class Organization(Base):
     # Relationships
     user_organizations = relationship("UserOrganization", back_populates="organization")
     encrypted_api_keys = relationship("EncryptedApiKey", back_populates="organization")
+    llm_providers = relationship("LLMProvider", back_populates="organization")
     
     def __repr__(self):
         return f"<Organization(name='{self.name}')>"
@@ -97,15 +98,41 @@ class EncryptedApiKey(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
-    # Usage tracking
-    last_used = Column(DateTime, nullable=True)
-    usage_count = Column(Integer, default=0)
-    
     # Relationships
     organization = relationship("Organization", back_populates="encrypted_api_keys")
     
     def __repr__(self):
         return f"<EncryptedApiKey(provider='{self.provider}', name='{self.key_name}')>"
+
+
+class LLMProvider(Base):
+    """LLM Provider configurations for organizations"""
+    __tablename__ = "llm_providers"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
+    name = Column(String, nullable=False)  # User-friendly name like "My OpenAI Account"
+    provider_type = Column(String, nullable=False)  # openai, ollama, azure_openai, etc.
+    encrypted_api_key = Column(Text, nullable=True)  # AES encrypted API key (nullable for local providers)
+    base_url = Column(String, nullable=True)  # Custom base URL
+    
+    # Model defaults
+    default_model_name = Column(String, nullable=False)
+    default_temperature = Column(Float, nullable=False, default=0.7)
+    default_max_tokens = Column(Integer, nullable=False, default=1000)
+    
+    # Metadata
+    is_default = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    
+    # Relationships
+    organization = relationship("Organization", back_populates="llm_providers")
+    
+    def __repr__(self):
+        return f"<LLMProvider(name='{self.name}', type='{self.provider_type}')>"
 
 
 class LoginAttempt(Base):
