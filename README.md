@@ -28,8 +28,8 @@ make dev
 make demo
 
 # Access the application
-# Web UI: http://localhost:3000
-# API docs: http://localhost:8000/docs
+# Web UI: http://localhost:3001
+# API docs: http://localhost:8003/docs
 ```
 
 ## Requirements

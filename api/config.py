@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     
     # CORS Configuration
     cors_origins: List[str] = Field(
-        ["http://localhost:3001"], 
+        ["http://localhost:3001", "http://localhost:3000"],
         env="CORS_ORIGINS"
     )  # Default to development, override in production
     
@@ -82,10 +82,7 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = False
         extra = "ignore"  # Ignore extra environment variables
-    
-    def is_production(self) -> bool:
-        return self.environment.lower() == "production"
-    
+
     def is_development(self) -> bool:
         return self.environment.lower() == "development"
 
