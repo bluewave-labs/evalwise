@@ -31,15 +31,64 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8003'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [token, setToken] = useState<string | null>(null)
+  const [user, setUser] = useState<User | null>(() => {
+    // Try to restore user from sessionStorage for instant load
+    if (typeof window !== 'undefined') {
+      const cached = sessionStorage.getItem('auth_user')
+      if (cached) {
+        try {
+          return JSON.parse(cached)
+        } catch {
+          return null
+        }
+      }
+    }
+    return null
+  })
+  const [token, setToken] = useState<string | null>(() => {
+    // Try to restore token from sessionStorage
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('auth_token')
+    }
+    return null
+  })
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+
+  // Persist user and token to sessionStorage when they change
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (user) {
+        sessionStorage.setItem('auth_user', JSON.stringify(user))
+      } else {
+        sessionStorage.removeItem('auth_user')
+      }
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (token) {
+        sessionStorage.setItem('auth_token', token)
+        ;(window as any).__authToken = token
+      } else {
+        sessionStorage.removeItem('auth_token')
+        ;(window as any).__authToken = null
+      }
+    }
+  }, [token])
 
   // Check for existing token on mount
   useEffect(() => {
     // Check for existing session via refresh token cookie
     const initializeAuth = async () => {
+      // If we have cached user/token, validate it quickly
+      if (user && token) {
+        console.log('Using cached auth state')
+        setLoading(false)
+        return
+      }
+
       try {
         console.log('Initializing auth with API_BASE_URL:', API_BASE_URL)
         // Try to refresh token to see if we have a valid session
