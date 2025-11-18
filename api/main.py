@@ -29,9 +29,11 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(title="EvalWise API", version="1.0.0")
 
 # CORS middleware
+from config import settings
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3001"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -128,10 +130,14 @@ def get_dashboard_metrics(
 
 # Datasets endpoints
 @app.post("/datasets", response_model=DatasetResponse)
-def create_dataset(dataset: DatasetCreate, db: Session = Depends(get_db)):
-    # Generate version hash
+def create_dataset(
+    dataset: DatasetCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Generate version hash using SHA256 instead of MD5
     content = json.dumps({"name": dataset.name, "tags": sorted(dataset.tags)}, sort_keys=True)
-    version_hash = hashlib.md5(content.encode()).hexdigest()
+    version_hash = hashlib.sha256(content.encode()).hexdigest()
     
     db_dataset = Dataset(
         name=dataset.name,
@@ -148,6 +154,7 @@ def create_dataset(dataset: DatasetCreate, db: Session = Depends(get_db)):
 def list_datasets(
     tag: Optional[str] = None,
     q: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     query = db.query(Dataset)
@@ -161,7 +168,11 @@ def list_datasets(
     return query.all()
 
 @app.get("/datasets/{dataset_id}", response_model=DatasetResponse)
-def get_dataset(dataset_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_dataset(
+    dataset_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -171,6 +182,7 @@ def get_dataset(dataset_id: uuid.UUID, db: Session = Depends(get_db)):
 async def upload_items(
     dataset_id: uuid.UUID,
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
@@ -222,10 +234,10 @@ async def upload_items(
             items_created += 1
         
         db.commit()
-        
-        # Update dataset version hash
-        items_hash = hashlib.md5(str(items_created).encode()).hexdigest()
-        dataset.version_hash = hashlib.md5(f"{dataset.version_hash}{items_hash}".encode()).hexdigest()
+
+        # Update dataset version hash using SHA256
+        items_hash = hashlib.sha256(str(items_created).encode()).hexdigest()
+        dataset.version_hash = hashlib.sha256(f"{dataset.version_hash}{items_hash}".encode()).hexdigest()
         db.commit()
         
         return {"message": f"Uploaded {items_created} items successfully"}
@@ -235,7 +247,11 @@ async def upload_items(
 
 # Scenarios endpoints
 @app.post("/scenarios", response_model=ScenarioResponse)
-def create_scenario(scenario: ScenarioCreate, db: Session = Depends(get_db)):
+def create_scenario(
+    scenario: ScenarioCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     db_scenario = Scenario(
         name=scenario.name,
         type=scenario.type,
@@ -248,12 +264,19 @@ def create_scenario(scenario: ScenarioCreate, db: Session = Depends(get_db)):
     return db_scenario
 
 @app.get("/scenarios", response_model=List[ScenarioResponse])
-def list_scenarios(db: Session = Depends(get_db)):
+def list_scenarios(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     return db.query(Scenario).all()
 
 # Evaluators endpoints
 @app.post("/evaluators", response_model=EvaluatorResponse)
-def create_evaluator(evaluator: EvaluatorCreate, db: Session = Depends(get_db)):
+def create_evaluator(
+    evaluator: EvaluatorCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     db_evaluator = Evaluator(
         name=evaluator.name,
         kind=evaluator.kind,
@@ -265,12 +288,19 @@ def create_evaluator(evaluator: EvaluatorCreate, db: Session = Depends(get_db)):
     return db_evaluator
 
 @app.get("/evaluators", response_model=List[EvaluatorResponse])
-def list_evaluators(db: Session = Depends(get_db)):
+def list_evaluators(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     return db.query(Evaluator).all()
 
 # Runs endpoints
 @app.post("/runs", response_model=RunResponse)
-def create_run(run: RunCreate, db: Session = Depends(get_db)):
+def create_run(
+    run: RunCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     # Validate dataset exists
     dataset = db.query(Dataset).filter(Dataset.id == run.dataset_id).first()
     if not dataset:
@@ -307,11 +337,18 @@ def create_run(run: RunCreate, db: Session = Depends(get_db)):
     return db_run
 
 @app.get("/runs", response_model=List[RunResponse])
-def list_runs(db: Session = Depends(get_db)):
+def list_runs(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     return db.query(Run).all()
 
 @app.get("/runs/{run_id}", response_model=RunResponse)
-def get_run(run_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_run(
+    run_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     run = db.query(Run).filter(Run.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -323,6 +360,7 @@ def get_run_results(
     evaluator_id: Optional[uuid.UUID] = None,
     scenario_id: Optional[uuid.UUID] = None,
     pass_filter: Optional[bool] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     query = db.query(Result).filter(Result.run_id == run_id)
@@ -339,7 +377,11 @@ def get_run_results(
     return query.all()
 
 @app.get("/runs/{run_id}/aggregates", response_model=RunAggregates)
-def get_run_aggregates(run_id: uuid.UUID, db: Session = Depends(get_db)):
+def get_run_aggregates(
+    run_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     # This would calculate aggregates from results
     # Implementation simplified for now
     return RunAggregates(
@@ -354,7 +396,11 @@ def get_run_aggregates(run_id: uuid.UUID, db: Session = Depends(get_db)):
 
 # Playground endpoint
 @app.post("/playground/test", response_model=PlaygroundResponse)
-def playground_test(request: PlaygroundRequest, db: Session = Depends(get_db)):
+def playground_test(
+    request: PlaygroundRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     # TODO: Implement playground testing
     # This would call the model and run evaluators
     return PlaygroundResponse(
