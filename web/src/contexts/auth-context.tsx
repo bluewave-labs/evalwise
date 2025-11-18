@@ -31,29 +31,34 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8003'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    // Try to restore user from sessionStorage for instant load
+  const [user, setUser] = useState<User | null>(null)
+  const [token, setToken] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [hydrated, setHydrated] = useState(false)
+  const router = useRouter()
+
+  // Restore from sessionStorage after hydration to avoid mismatch
+  useEffect(() => {
     if (typeof window !== 'undefined') {
-      const cached = sessionStorage.getItem('auth_user')
-      if (cached) {
+      const cachedUser = sessionStorage.getItem('auth_user')
+      const cachedToken = sessionStorage.getItem('auth_token')
+
+      if (cachedUser) {
         try {
-          return JSON.parse(cached)
+          setUser(JSON.parse(cachedUser))
         } catch {
-          return null
+          // Invalid cached data, ignore
         }
       }
+
+      if (cachedToken) {
+        setToken(cachedToken)
+        ;(window as any).__authToken = cachedToken
+      }
+
+      setHydrated(true)
     }
-    return null
-  })
-  const [token, setToken] = useState<string | null>(() => {
-    // Try to restore token from sessionStorage
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('auth_token')
-    }
-    return null
-  })
-  const [loading, setLoading] = useState(true)
-  const router = useRouter()
+  }, [])
 
   // Persist user and token to sessionStorage when they change
   useEffect(() => {
@@ -78,8 +83,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [token])
 
-  // Check for existing token on mount
+  // Check for existing token after hydration
   useEffect(() => {
+    // Wait for hydration to complete before checking auth
+    if (!hydrated) return
+
     // Check for existing session via refresh token cookie
     const initializeAuth = async () => {
       // If we have cached user/token, validate it quickly
@@ -109,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     initializeAuth()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Run only once on mount
+  }, [hydrated]) // Run after hydration completes
 
   // Set up token refresh interval in a separate effect
   useEffect(() => {
