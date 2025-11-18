@@ -34,12 +34,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [hydrated, setHydrated] = useState(false)
   const router = useRouter()
 
-  // Check for existing token on mount
+  // Restore from sessionStorage after hydration to avoid mismatch
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const cachedUser = sessionStorage.getItem('auth_user')
+      const cachedToken = sessionStorage.getItem('auth_token')
+
+      if (cachedUser) {
+        try {
+          setUser(JSON.parse(cachedUser))
+        } catch {
+          // Invalid cached data, ignore
+        }
+      }
+
+      if (cachedToken) {
+        setToken(cachedToken)
+        ;(window as any).__authToken = cachedToken
+      }
+
+      setHydrated(true)
+    }
+  }, [])
+
+  // Persist user and token to sessionStorage when they change
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (user) {
+        sessionStorage.setItem('auth_user', JSON.stringify(user))
+      } else {
+        sessionStorage.removeItem('auth_user')
+      }
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (token) {
+        sessionStorage.setItem('auth_token', token)
+        ;(window as any).__authToken = token
+      } else {
+        sessionStorage.removeItem('auth_token')
+        ;(window as any).__authToken = null
+      }
+    }
+  }, [token])
+
+  // Check for existing token after hydration
+  useEffect(() => {
+    // Wait for hydration to complete before checking auth
+    if (!hydrated) return
+
     // Check for existing session via refresh token cookie
     const initializeAuth = async () => {
+      // If we have cached user/token, validate it quickly
+      if (user && token) {
+        console.log('Using cached auth state')
+        setLoading(false)
+        return
+      }
+
       try {
         console.log('Initializing auth with API_BASE_URL:', API_BASE_URL)
         // Try to refresh token to see if we have a valid session
@@ -60,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     initializeAuth()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // Run only once on mount
+  }, [hydrated]) // Run after hydration completes
 
   // Set up token refresh interval in a separate effect
   useEffect(() => {
